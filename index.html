@@ -43,6 +43,7 @@
         .perfeito { color: #00ff73; }
         .aumentar { color: #ffd700; }
         .diminuir { color: #ff9100; }
+        .pontuacao-final { font-size: 32px; color: #00e5ff; font-weight: bold; margin-top: 15px; }
         #log-erro { color: #ff5252; margin-top: 15px; font-weight: bold; }
     </style>
 </head>
@@ -55,6 +56,7 @@
         <div class="nota-alvo" id="txt-alvo">NOTA ALVO: Dó4</div>
         <div class="nota-voz" id="txt-voz">Sua voz: ---</div>
         <div class="instrucao" id="txt-instrucao">Cante no microfone...</div>
+        <div id="txt-score-final"></div>
     </div>
 
     <script>
@@ -64,14 +66,28 @@
         let microphone;
         let rodando = false;
         
+        // MÚSICA LONGA DE TREINO (Aproximadamente 2 minutos)
         const musica = [
-            { nome: "Dó4", midi: 60, duracao: 4 },
-            { nome: "Mi4", midi: 64, duracao: 4 },
-            { nome: "Sol4", midi: 67, duracao: 4 },
-            { nome: "Dó5", midi: 72, duracao: 5 }
+            { nome: "Dó4", midi: 60, duracao: 6 },
+            { nome: "Ré4", midi: 62, duracao: 6 },
+            { nome: "Mi4", midi: 64, duracao: 6 },
+            { nome: "Fá4", midi: 65, duracao: 6 },
+            { nome: "Sol4", midi: 67, duracao: 6 },
+            { nome: "Lá4", midi: 69, duracao: 6 },
+            { nome: "Si4", midi: 71, duracao: 6 },
+            { nome: "Dó5", midi: 72, duracao: 8 },
+            { nome: "Si4", midi: 71, duracao: 6 },
+            { nome: "Lá4", midi: 69, duracao: 6 },
+            { nome: "Sol4", midi: 67, duracao: 6 },
+            { nome: "Fá4", midi: 65, duracao: 6 },
+            { nome: "Mi4", midi: 64, duracao: 6 },
+            { nome: "Ré4", midi: 62, duracao: 6 },
+            { nome: "Dó4", midi: 60, duracao: 8 }
         ];
         
         let tempoInicio = 0;
+        let framesTotais = 0;
+        let acertosTotais = 0;
 
         document.getElementById('btn-iniciar').addEventListener('click', async () => {
             const divErro = document.getElementById('log-erro');
@@ -103,6 +119,8 @@
                 
                 tempoInicio = audioContext.currentTime;
                 rodando = true;
+                framesTotais = 0;
+                acertosTotais = 0;
                 atualizarLoop();
                 
             } catch (err) {
@@ -182,17 +200,28 @@
             const txtAlvo = document.getElementById('txt-alvo');
             const txtVoz = document.getElementById('txt-voz');
             const txtInstrucao = document.getElementById('txt-instrucao');
+            const txtScoreFinal = document.getElementById('txt-score-final');
 
             if (!notaAlvo) {
-                txtAlvo.innerHTML = "MÚSICA FINALIZADA!";
+                // Cálculo da nota final de 0 a 10
+                let pontuacao = 0;
+                if (framesTotais > 0) {
+                    pontuacao = (acertosTotais / framesTotais) * 10;
+                }
+                
+                txtAlvo.innerHTML = "🎉 TREINO FINALIZADO!";
                 txtVoz.innerHTML = "";
                 txtInstrucao.innerHTML = "";
+                txtScoreFinal.className = "pontuacao-final";
+                txtScoreFinal.innerHTML = `SUA NOTA: ${pontuacao.toFixed(1)} / 10`;
+                rodando = false;
                 return;
             }
 
             txtAlvo.innerHTML = `NOTA ALVO: ${notaAlvo.nome}`;
 
             if (freq !== -1) {
+                framesTotais++;
                 const midiVoz = freqParaNotaMidi(freq);
                 txtVoz.innerHTML = `Sua voz: ${nomeDaNota(midiVoz)} (${Math.round(freq)} Hz)`;
                 
@@ -200,6 +229,7 @@
                 txtInstrucao.className = "instrucao"; 
 
                 if (Math.abs(diferenca) <= 0.8) {
+                    acertosTotais++;
                     txtInstrucao.innerHTML = "PERFEITO! (No Tom)";
                     txtInstrucao.classList.add("perfeito");
                 } else if (diferenca < -0.8) {
