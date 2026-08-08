@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treinador Vocal - Web</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        #btn-iniciar {
+            padding: 18px 36px;
+            font-size: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        #btn-iniciar:hover { background-color: #45a049; }
+        .painel {
+            background-color: #2d2d2d;
+            padding: 30px;
+            border-radius: 10px;
+            width: 85%;
+            max-width: 600px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .nota-alvo { color: #00e5ff; font-size: 26px; font-weight: bold; margin-bottom: 15px; }
+        .nota-voz { color: #ffffff; font-size: 20px; margin-bottom: 15px; }
+        .instrucao { font-size: 26px; font-weight: bold; margin-top: 20px; }
+        .perfeito { color: #00ff73; }
+        .aumentar { color: #ffd700; }
+        .diminuir { color: #ff9100; }
+        #log-erro { color: #ff5252; margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <button id="btn-iniciar">🎤 Ativar Microfone e Começar</button>
+    <div id="log-erro"></div>
+    
+    <div class="painel" id="painel-app" style="display: none;">
+        <div class="nota-alvo" id="txt-alvo">NOTA ALVO: Dó4</div>
+        <div class="nota-voz" id="txt-voz">Sua voz: ---</div>
+        <div class="instrucao" id="txt-instrucao">Cante no microfone...</div>
+    </div>
+
+    <script>
+        const notasNomes = ['Dó', 'Dó#', 'Ré', 'Ré#', 'Mi', 'Fá', 'Fá#', 'Sol', 'Sol#', 'Lá', 'Lá#', 'Si'];
+        let audioContext;
+        let analyser;
+        let microphone;
+        let rodando = false;
+        
+        const musica = [
+            { nome: "Dó4", midi: 60, duracao: 4 },
+            { nome: "Mi4", midi: 64, duracao: 4 },
+            { nome: "Sol4", midi: 67, duracao: 4 },
+            { nome: "Dó5", midi: 72, duracao: 5 }
+        ];
+        
+        let tempoInicio = 0;
+
+        document.getElementById('btn-iniciar').addEventListener('click', async () => {
+            const divErro = document.getElementById('log-erro');
+            divErro.innerHTML = "";
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                divErro.innerHTML = "❌ O navegador bloqueou o acesso ao microfone.";
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                audioContext = new AudioCtx();
+                
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                document.getElementById('btn-iniciar').style.display = 'none';
+                document.getElementById('painel-app').style.display = 'block';
+                
+                tempoInicio = audioContext.currentTime;
+                rodando = true;
+                atualizarLoop();
+                
+            } catch (err) {
+                console.error(err);
+                divErro.innerHTML = "❌ Erro ao ativar microfone. Verifique a permissão do navegador.";
+            }
+        });
+
+        function autoCorrelate(buf, sampleRate) {
+            let size = buf.length;
+            let rms = 0;
+            for (let i = 0; i < size; i++) {
+                let val = buf[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / size);
+            if (rms < 0.015) return -1;
+
+            let r1 = 0, r2 = size - 1, thres = 0.2;
+            for (let i = 0; i < size / 2; i++)
+                if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+            for (let i = 1; i < size / 2; i++)
+                if (Math.abs(buf[size - i]) < thres) { r2 = size - i; break; }
+
+            buf = buf.slice(r1, r2);
+            size = buf.length;
+
+            let c = new Array(size).fill(0);
+            for (let i = 0; i < size; i++)
+                for (let j = 0; j < size - i; j++)
+                    c[i] = c[i] + buf[j] * buf[j + i];
+
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < size; i++) {
+                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+            }
+            let T0 = maxpos;
+            let x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+            let a = (x1 + x3 - 2 * x2) / 2;
+            let b = (x3 - x1) / 2;
+            if (a) T0 = T0 - b / (2 * a);
+
+            return sampleRate / T0;
+        }
+
+        function freqParaNotaMidi(freq) {
+            return 69 + 12 * Math.log2(freq / 440.0);
+        }
+
+        function nomeDaNota(midi) {
+            const midiRound = Math.round(midi);
+            const nome = notasNomes[midiRound % 12];
+            const oitava = Math.floor(midiRound / 12) - 1;
+            return `${nome}${oitava}`;
+        }
+
+        function atualizarLoop() {
+            if (!rodando) return;
+
+            const buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            const freq = autoCorrelate(buffer, audioContext.sampleRate);
+            
+            const tempoDecorrido = audioContext.currentTime - tempoInicio;
+            let notaAlvo = null;
+            let tempoAcumulado = 0;
+            
+            for (let i = 0; i < musica.length; i++) {
+                tempoAcumulado += musica[i].duracao;
+                if (tempoDecorrido < tempoAcumulado) {
+                    notaAlvo = musica[i];
+                    break;
+                }
+            }
+
+            const txtAlvo = document.getElementById('txt-alvo');
+            const txtVoz = document.getElementById('txt-voz');
+            const txtInstrucao = document.getElementById('txt-instrucao');
+
+            if (!notaAlvo) {
+                txtAlvo.innerHTML = "MÚSICA FINALIZADA!";
+                txtVoz.innerHTML = "";
+                txtInstrucao.innerHTML = "";
+                return;
+            }
+
+            txtAlvo.innerHTML = `NOTA ALVO: ${notaAlvo.nome}`;
+
+            if (freq !== -1) {
+                const midiVoz = freqParaNotaMidi(freq);
+                txtVoz.innerHTML = `Sua voz: ${nomeDaNota(midiVoz)} (${Math.round(freq)} Hz)`;
+                
+                const diferenca = midiVoz - notaAlvo.midi;
+                txtInstrucao.className = "instrucao"; 
+
+                if (Math.abs(diferenca) <= 0.8) {
+                    txtInstrucao.innerHTML = "PERFEITO! (No Tom)";
+                    txtInstrucao.classList.add("perfeito");
+                } else if (diferenca < -0.8) {
+                    txtInstrucao.innerHTML = "▲ AUMENTE O TOM (Cante mais Agudo)";
+                    txtInstrucao.classList.add("aumentar");
+                } else {
+                    txtInstrucao.innerHTML = "▼ DIMINUA O TOM (Cante mais Grave)";
+                    txtInstrucao.classList.add("diminuir");
+                }
+            } else {
+                txtVoz.innerHTML = "Sua voz: ---";
+                txtInstrucao.innerHTML = "Cante no microfone...";
+                txtInstrucao.className = "instrucao";
+            }
+
+            requestAnimationFrame(atualizarLoop);
+        }
+    </script>
+</body>
+</html>
