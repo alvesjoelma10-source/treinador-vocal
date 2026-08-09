@@ -17,7 +17,7 @@
             margin: 0;
             text-align: center;
         }
-        #btn-iniciar {
+        .btn-acao {
             padding: 18px 36px;
             font-size: 20px;
             background-color: #4CAF50;
@@ -28,7 +28,7 @@
             margin-bottom: 20px;
             font-weight: bold;
         }
-        #btn-iniciar:hover { background-color: #45a049; }
+        .btn-acao:hover { background-color: #45a049; }
         .painel {
             background-color: #2d2d2d;
             padding: 30px;
@@ -37,19 +37,20 @@
             max-width: 600px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
-        .nota-alvo { color: #00e5ff; font-size: 26px; font-weight: bold; margin-bottom: 15px; }
+        .nota-alvo { color: #00e5ff; font-size: 28px; font-weight: bold; margin-bottom: 15px; }
         .nota-voz { color: #ffffff; font-size: 20px; margin-bottom: 15px; }
         .instrucao { font-size: 26px; font-weight: bold; margin-top: 20px; }
         .perfeito { color: #00ff73; }
         .aumentar { color: #ffd700; }
         .diminuir { color: #ff9100; }
-        .pontuacao-final { font-size: 32px; color: #00e5ff; font-weight: bold; margin-top: 15px; }
+        .pausa { color: #ffeb3b; font-size: 24px; font-weight: bold; }
+        .pontuacao-final { font-size: 32px; color: #00e5ff; font-weight: bold; margin-top: 15px; margin-bottom: 20px; }
         #log-erro { color: #ff5252; margin-top: 15px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="btn-iniciar">🎤 Ativar Microfone e Começar</button>
+    <button id="btn-iniciar" class="btn-acao">🎤 Ativar Microfone e Começar</button>
     <div id="log-erro"></div>
     
     <div class="painel" id="painel-app" style="display: none;">
@@ -57,6 +58,7 @@
         <div class="nota-voz" id="txt-voz">Sua voz: ---</div>
         <div class="instrucao" id="txt-instrucao">Cante no microfone...</div>
         <div id="txt-score-final"></div>
+        <button id="btn-reiniciar" class="btn-acao" style="display: none; margin-top: 20px;">🔄 Treinar Novamente</button>
     </div>
 
     <script>
@@ -64,32 +66,33 @@
         let audioContext;
         let analyser;
         let microphone;
+        let streamGlobal = null;
         let rodando = false;
         
-        // MÚSICA LONGA DE TREINO (Aproximadamente 2 minutos)
+        // MÚSICA DE TREINO (Duração em segundos para cada nota)
         const musica = [
-            { nome: "Dó4", midi: 60, duracao: 6 },
-            { nome: "Ré4", midi: 62, duracao: 6 },
-            { nome: "Mi4", midi: 64, duracao: 6 },
-            { nome: "Fá4", midi: 65, duracao: 6 },
-            { nome: "Sol4", midi: 67, duracao: 6 },
-            { nome: "Lá4", midi: 69, duracao: 6 },
-            { nome: "Si4", midi: 71, duracao: 6 },
-            { nome: "Dó5", midi: 72, duracao: 8 },
-            { nome: "Si4", midi: 71, duracao: 6 },
-            { nome: "Lá4", midi: 69, duracao: 6 },
-            { nome: "Sol4", midi: 67, duracao: 6 },
-            { nome: "Fá4", midi: 65, duracao: 6 },
-            { nome: "Mi4", midi: 64, duracao: 6 },
-            { nome: "Ré4", midi: 62, duracao: 6 },
-            { nome: "Dó4", midi: 60, duracao: 8 }
+            { nome: "Dó4", midi: 60, duracao: 5 },
+            { nome: "Ré4", midi: 62, duracao: 5 },
+            { nome: "Mi4", midi: 64, duracao: 5 },
+            { nome: "Fá4", midi: 65, duracao: 5 },
+            { nome: "Sol4", midi: 67, duracao: 5 },
+            { nome: "Lá4", midi: 69, duracao: 5 },
+            { nome: "Si4", midi: 71, duracao: 5 },
+            { nome: "Dó5", midi: 72, duracao: 6 }
         ];
         
-        let tempoInicio = 0;
+        const TEMPO_PAUSA = 3; // 3 segundos de descanso entre as notas
+        let indiceNotaAtual = 0;
+        let emPausa = false;
+        let tempoInicioFase = 0;
+
         let framesTotais = 0;
         let acertosTotais = 0;
 
-        document.getElementById('btn-iniciar').addEventListener('click', async () => {
+        document.getElementById('btn-iniciar').addEventListener('click', iniciarTreino);
+        document.getElementById('btn-reiniciar').addEventListener('click', reiniciarTreino);
+
+        async function iniciarTreino() {
             const divErro = document.getElementById('log-erro');
             divErro.innerHTML = "";
 
@@ -99,35 +102,57 @@
             }
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                if (!streamGlobal) {
+                    streamGlobal = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                }
                 
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                audioContext = new AudioCtx();
+                if (!audioContext) {
+                    audioContext = new AudioCtx();
+                }
                 
                 if (audioContext.state === 'suspended') {
                     await audioContext.resume();
                 }
 
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048;
-                
-                microphone = audioContext.createMediaStreamSource(stream);
-                microphone.connect(analyser);
+                if (!analyser) {
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                    microphone = audioContext.createMediaStreamSource(streamGlobal);
+                    microphone.connect(analyser);
+                }
                 
                 document.getElementById('btn-iniciar').style.display = 'none';
                 document.getElementById('painel-app').style.display = 'block';
+                document.getElementById('btn-reiniciar').style.display = 'none';
+                document.getElementById('txt-score-final').innerHTML = "";
                 
-                tempoInicio = audioContext.currentTime;
-                rodando = true;
+                indiceNotaAtual = 0;
+                emPausa = false;
+                tempoInicioFase = audioContext.currentTime;
                 framesTotais = 0;
                 acertosTotais = 0;
+                rodando = true;
+                
                 atualizarLoop();
                 
             } catch (err) {
                 console.error(err);
                 divErro.innerHTML = "❌ Erro ao ativar microfone. Verifique a permissão do navegador.";
             }
-        });
+        }
+
+        function reiniciarTreino() {
+            document.getElementById('btn-reiniciar').style.display = 'none';
+            document.getElementById('txt-score-final').innerHTML = "";
+            indiceNotaAtual = 0;
+            emPausa = false;
+            tempoInicioFase = audioContext.currentTime;
+            framesTotais = 0;
+            acertosTotais = 0;
+            rodando = true;
+            atualizarLoop();
+        }
 
         function autoCorrelate(buf, sampleRate) {
             let size = buf.length;
@@ -181,29 +206,16 @@
         function atualizarLoop() {
             if (!rodando) return;
 
-            const buffer = new Float32Array(analyser.fftSize);
-            analyser.getFloatTimeDomainData(buffer);
-            const freq = autoCorrelate(buffer, audioContext.sampleRate);
-            
-            const tempoDecorrido = audioContext.currentTime - tempoInicio;
-            let notaAlvo = null;
-            let tempoAcumulado = 0;
-            
-            for (let i = 0; i < musica.length; i++) {
-                tempoAcumulado += musica[i].duracao;
-                if (tempoDecorrido < tempoAcumulado) {
-                    notaAlvo = musica[i];
-                    break;
-                }
-            }
+            const tempoAtual = audioContext.currentTime;
+            const tempoDecorridoFase = tempoAtual - tempoInicioFase;
 
             const txtAlvo = document.getElementById('txt-alvo');
             const txtVoz = document.getElementById('txt-voz');
             const txtInstrucao = document.getElementById('txt-instrucao');
             const txtScoreFinal = document.getElementById('txt-score-final');
 
-            if (!notaAlvo) {
-                // Cálculo da nota final de 0 a 10
+            // FIM DO TREINO
+            if (indiceNotaAtual >= musica.length) {
                 let pontuacao = 0;
                 if (framesTotais > 0) {
                     pontuacao = (acertosTotais / framesTotais) * 10;
@@ -214,11 +226,39 @@
                 txtInstrucao.innerHTML = "";
                 txtScoreFinal.className = "pontuacao-final";
                 txtScoreFinal.innerHTML = `SUA NOTA: ${pontuacao.toFixed(1)} / 10`;
+                
+                document.getElementById('btn-reiniciar').style.display = 'inline-block';
                 rodando = false;
                 return;
             }
 
+            const notaAlvo = musica[indiceNotaAtual];
+
+            // ESTADO DE PAUSA (INTERVALO ENTRE NOTAS)
+            if (emPausa) {
+                const tempoRestante = Math.ceil(TEMPO_PAUSA - tempoDecorridoFase);
+                const proximaNota = musica[indiceNotaAtual];
+                
+                txtAlvo.innerHTML = `PRÓXIMA NOTA: ${proximaNota.nome}`;
+                txtVoz.innerHTML = "Respire e prepare a voz...";
+                txtInstrucao.className = "instrucao pausa";
+                txtInstrucao.innerHTML = `⏳ Começa em: ${tempoRestante}s`;
+
+                if (tempoDecorridoFase >= TEMPO_PAUSA) {
+                    emPausa = false;
+                    tempoInicioFase = audioContext.currentTime;
+                }
+
+                requestAnimationFrame(atualizarLoop);
+                return;
+            }
+
+            // ESTADO DE CANTO (ANALISANDO A VOZ)
             txtAlvo.innerHTML = `NOTA ALVO: ${notaAlvo.nome}`;
+
+            const buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            const freq = autoCorrelate(buffer, audioContext.sampleRate);
 
             if (freq !== -1) {
                 framesTotais++;
@@ -243,6 +283,15 @@
                 txtVoz.innerHTML = "Sua voz: ---";
                 txtInstrucao.innerHTML = "Cante no microfone...";
                 txtInstrucao.className = "instrucao";
+            }
+
+            // Mudar para a pausa se o tempo da nota atual acabou
+            if (tempoDecorridoFase >= notaAlvo.duracao) {
+                indiceNotaAtual++;
+                if (indiceNotaAtual < musica.length) {
+                    emPausa = true;
+                    tempoInicioFase = audioContext.currentTime;
+                }
             }
 
             requestAnimationFrame(atualizarLoop);
